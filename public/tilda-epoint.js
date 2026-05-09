@@ -1,17 +1,4 @@
 /* eslint-disable no-undef */
-/*
- * ePoint.az ↔ Tilda integration
- * Hosting: served from your Vercel deployment as /tilda-epoint.js
- * Inject on the Tilda page via T123 (HTML block):
- *   <script>window.EPOINT_API_BASE = 'https://your-project.vercel.app';</script>
- *   <script src="https://your-project.vercel.app/tilda-epoint.js" defer></script>
- *
- * What it does:
- *   - Hooks the standard Tilda cart checkout button (.t706__order-button)
- *   - Reads cart data from window.tcart (products, total, customer fields)
- *   - Sends a server request to /api/create-payment
- *   - Redirects the browser to the ePoint payment page
- */
 
 (function () {
   'use strict';
@@ -30,11 +17,20 @@
 
   function getTildaCart() {
     try {
-      if (window.tcart && Array.isArray(window.tcart.products)) return window.tcart;
+      if (window.tcart && Array.isArray(window.tcart.products)) {
+        return window.tcart;
+      }
+
       var raw = localStorage.getItem('tcart');
+
       if (!raw) return null;
+
       var parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.products)) return parsed;
+
+      if (parsed && Array.isArray(parsed.products)) {
+        return parsed;
+      }
+
       return null;
     } catch (e) {
       log('cart parse error', e);
@@ -43,158 +39,263 @@
   }
 
   function readCustomerFromForm(form) {
-    var data = { name: '', email: '', phone: '' };
-    if (!form) return data;
+    var data = {
+      name: '',
+      email: '',
+      phone: '',
+    };
+
     try {
-      var inputs = form.querySelectorAll('input, textarea, select');
+      var root = form || document;
+
+      var inputs = root.querySelectorAll('input, textarea, select');
+
       for (var i = 0; i < inputs.length; i++) {
         var el = inputs[i];
+
         var name = (el.getAttribute('name') || '').toLowerCase();
+        var placeholder = (el.getAttribute('placeholder') || '').toLowerCase();
         var type = (el.getAttribute('type') || '').toLowerCase();
+
         var value = (el.value || '').trim();
+
         if (!value) continue;
-        if (!data.email && (type === 'email' || /email/.test(name))) data.email = value;
-        else if (!data.phone && (type === 'tel' || /phone|tel/.test(name))) data.phone = value;
-        else if (!data.name && /name|имя|ad/.test(name)) data.name = value;
+
+        if (
+          !data.email &&
+          (type === 'email' || /email|почта/.test(name + placeholder))
+        ) {
+          data.email = value;
+        }
+
+        else if (
+          !data.phone &&
+          (type === 'tel' || /phone|tel|телефон/.test(name + placeholder))
+        ) {
+          data.phone = value;
+        }
+
+        else if (
+          !data.name &&
+          /name|имя/.test(name + placeholder)
+        ) {
+          data.name = value;
+        }
       }
+
     } catch (e) {
       log('form read error', e);
     }
+
     return data;
   }
 
   function buildOrderId() {
-    var rand = Math.random().toString(36).slice(2, 8).toUpperCase();
-    return 'TILDA-' + Date.now() + '-' + rand;
+    return 'ORDER-' + Date.now();
   }
 
   function buildDescription(cart) {
-    if (!cart || !Array.isArray(cart.products) || !cart.products.length) {
+    if (!cart || !Array.isArray(cart.products)) {
       return 'Заказ you-lush.com';
     }
-    var titles = cart.products
+
+    return cart.products
       .map(function (p) {
-        var qty = p.quantity ? ' x' + p.quantity : '';
-        return (p.name || 'Товар') + qty;
+        return (p.name || 'Товар') + ' x' + (p.quantity || 1);
       })
-      .join(', ');
-    return ('you-lush.com: ' + titles).slice(0, 480);
+      .join(', ')
+      .slice(0, 480);
   }
 
   function getCartAmount(cart) {
     if (!cart) return 0;
-    var raw =
-      cart.prodamount ||
-      cart.amount ||
-      (cart.amount && cart.amount.total) ||
-      0;
-    var n = Number(String(raw).replace(/[^0-9.,-]/g, '').replace(',', '.'));
-    return Number.isFinite(n) && n > 0 ? n : 0;
+
+    var total = 0;
+
+    if (Array.isArray(cart.products)) {
+
+      cart.products.forEach(function (p) {
+
+        var price = Number(p.price || p.amount || 0);
+        var qty = Number(p.quantity || 1);
+
+        total += price * qty;
+
+      });
+
+    }
+
+    return Number(total.toFixed(2));
   }
 
-  function showError(msg) {
-    try {
-      alert(msg);
-    } catch (_) {}
+  function showError(message) {
+    alert(message);
   }
 
   async function startPayment(triggerEl) {
-    var form = triggerEl ? triggerEl.closest('form') : null;
+
     var cart = getTildaCart();
 
+    log('cart', cart);
+
     if (!cart || !Array.isArray(cart.products) || !cart.products.length) {
-      showError('Корзина пуста.');
+      showError('Корзина пуста');
       return;
     }
 
     var amount = getCartAmount(cart);
+
     if (!amount || amount <= 0) {
-      showError('Не удалось определить сумму заказа.');
+      showError('Ошибка суммы заказа');
       return;
     }
 
-    var customer = readCustomerFromForm(form);
-    var orderId = buildOrderId();
-    var description = buildDescription(cart);
+    var customer = readCustomerFromForm(document);
 
     var payload = {
+
       amount: amount,
-      order_id: orderId,
-      description: description,
+
+      order_id: buildOrderId(),
+
+      description: buildDescription(cart),
+
       customer_name: customer.name,
+
       customer_email: customer.email,
+
       customer_phone: customer.phone,
+
       cart: cart.products.map(function (p) {
+
         return {
           name: p.name,
           quantity: p.quantity,
-          amount: p.amount,
           price: p.price,
         };
+
       }),
+
     };
 
     log('payload', payload);
 
-    if (triggerEl) {
-      triggerEl.setAttribute('disabled', 'disabled');
-      triggerEl.dataset.epointOrigText = triggerEl.textContent;
-      triggerEl.textContent = 'Перенаправляем на оплату...';
-    }
-
     try {
-      var res = await fetch(CREATE_PAYMENT_URL, {
+
+      if (triggerEl) {
+
+        triggerEl.disabled = true;
+
+        if (!triggerEl.dataset.originalText) {
+          triggerEl.dataset.originalText = triggerEl.innerHTML;
+        }
+
+        triggerEl.innerHTML = 'Переход к оплате...';
+
+      }
+
+      var response = await fetch(CREATE_PAYMENT_URL, {
+
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+
         body: JSON.stringify(payload),
+
       });
 
-      var data = await res.json().catch(function () {
-        return null;
-      });
+      var data = await response.json();
 
-      if (res.ok && data && data.success && data.redirect_url) {
-        log('redirecting', data.redirect_url);
+      log('response', data);
+
+      if (
+        response.ok &&
+        data &&
+        data.success &&
+        data.redirect_url
+      ) {
+
         window.location.href = data.redirect_url;
         return;
+
       }
 
-      var msg = (data && data.error) || 'Не удалось создать платёж. Попробуйте ещё раз.';
-      showError(msg);
-      log('payment failure', data, res.status);
-    } catch (e) {
-      showError('Сетевая ошибка. Проверьте соединение и попробуйте ещё раз.');
-      log('network error', e);
+      showError(
+        (data && data.error)
+          ? data.error
+          : 'Ошибка создания платежа'
+      );
+
+    } catch (error) {
+
+      console.error(error);
+
+      showError('Ошибка подключения к оплате');
+
     } finally {
+
       if (triggerEl) {
-        triggerEl.removeAttribute('disabled');
-        if (triggerEl.dataset.epointOrigText) {
-          triggerEl.textContent = triggerEl.dataset.epointOrigText;
+
+        triggerEl.disabled = false;
+
+        if (triggerEl.dataset.originalText) {
+          triggerEl.innerHTML = triggerEl.dataset.originalText;
         }
+
       }
+
     }
+
   }
 
-  function bind() {
+  function bindCheckoutButtons() {
+
     document.addEventListener(
       'click',
       function (event) {
-        var el = event.target.closest('.t706__order-button, [data-epoint-pay]');
-        if (!el) return;
+
+        var button = event.target.closest(
+          '.t706__cartwin-prodamount-btn, .t706__order-button, [data-epoint-pay]'
+        );
+
+        if (!button) return;
+
+        log('checkout click detected');
 
         event.preventDefault();
         event.stopPropagation();
-        startPayment(el);
+        event.stopImmediatePropagation();
+
+        startPayment(button);
+
+        return false;
+
       },
       true
     );
+
+    log('checkout binding active');
+
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bind);
+
+    document.addEventListener(
+      'DOMContentLoaded',
+      bindCheckoutButtons
+    );
+
   } else {
-    bind();
+
+    bindCheckoutButtons();
+
   }
 
-  window.epointTilda = { startPayment: startPayment, getTildaCart: getTildaCart };
+  window.epointTilda = {
+    startPayment: startPayment,
+  };
+
 })();
