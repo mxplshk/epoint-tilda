@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "functions": {
+    "api/create-payment.js": {
+      "maxDuration": 30
+    },
+    "api/callback.js": {
+      "maxDuration": 30
+    }
+  }
+}
