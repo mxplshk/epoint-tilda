@@ -5,71 +5,35 @@
   'use strict';
 
   var API_BASE = 'https://epoint-tilda.vercel.app';
-  var CREATE_PAYMENT_URL = API_BASE + '/api/create-payment';
-
-  function getCart() {
-
-    try {
-
-      if (window.tcart && Array.isArray(window.tcart.products)) {
-        return window.tcart;
-      }
-
-      var raw = localStorage.getItem('tcart');
-
-      if (!raw) return null;
-
-      return JSON.parse(raw);
-
-    } catch (e) {
-
-      console.error(e);
-      return null;
-
-    }
-
-  }
-
-  function getAmount(cart) {
-
-    var total = 0;
-
-    if (!cart || !Array.isArray(cart.products)) {
-      return 0;
-    }
-
-    cart.products.forEach(function (item) {
-
-      total +=
-        Number(item.price || 0) *
-        Number(item.quantity || 1);
-
-    });
-
-    return Number(total.toFixed(2));
-
-  }
 
   async function createPayment(button) {
 
     try {
 
-      var cart = getCart();
+      var cart = window.tcart;
 
       if (!cart || !cart.products || !cart.products.length) {
         alert('Корзина пуста');
         return;
       }
 
-      var amount = getAmount(cart);
+      var amount = 0;
+
+      cart.products.forEach(function (item) {
+
+        amount +=
+          Number(item.price || 0) *
+          Number(item.quantity || 1);
+
+      });
 
       var payload = {
 
-        amount: amount,
+        amount: Number(amount.toFixed(2)),
 
         order_id: 'ORDER-' + Date.now(),
 
-        description: 'YouLush order',
+        description: 'YouLush Order',
 
         cart: cart.products.map(function (p) {
 
@@ -83,26 +47,30 @@
 
       };
 
-      console.log('PAYLOAD', payload);
+      console.log('PAYMENT PAYLOAD', payload);
 
       button.disabled = true;
-      button.innerHTML = 'Переход к оплате...';
 
-      var response = await fetch(CREATE_PAYMENT_URL, {
+      button.innerHTML = 'Redirecting...';
 
-        method: 'POST',
+      var response = await fetch(
+        API_BASE + '/api/create-payment',
+        {
 
-        headers: {
-          'Content-Type': 'application/json'
-        },
+          method: 'POST',
 
-        body: JSON.stringify(payload)
+          headers: {
+            'Content-Type': 'application/json'
+          },
 
-      });
+          body: JSON.stringify(payload)
+
+        }
+      );
 
       var data = await response.json();
 
-      console.log('RESPONSE', data);
+      console.log('PAYMENT RESPONSE', data);
 
       if (
         data &&
@@ -123,32 +91,27 @@
 
       alert('Ошибка подключения');
 
-    } finally {
-
-      button.disabled = false;
-      button.innerHTML = 'Checkout';
-
     }
 
   }
 
-  function interceptCheckout() {
+  function bindCheckout() {
 
-    document.body.addEventListener(
+    document.addEventListener(
       'click',
       function (event) {
 
         var button = event.target.closest(
-          '.t706__cartwin-prodamount-btn'
+          '.t-submit.t-btnflex'
         );
 
         if (!button) return;
 
+        console.log('CHECKOUT CLICK');
+
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-
-        console.log('CHECKOUT INTERCEPTED');
 
         createPayment(button);
 
@@ -164,12 +127,12 @@
 
     document.addEventListener(
       'DOMContentLoaded',
-      interceptCheckout
+      bindCheckout
     );
 
   } else {
 
-    interceptCheckout();
+    bindCheckout();
 
   }
 
