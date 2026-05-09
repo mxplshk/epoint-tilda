@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  var DEFAULT_BASE = 'https://your-project.vercel.app';
+  var DEFAULT_BASE = 'https://epoint-tilda.vercel.app';
   var API_BASE = (window.EPOINT_API_BASE || DEFAULT_BASE).replace(/\/+$/, '');
   var CREATE_PAYMENT_URL = API_BASE + '/api/create-payment';
 
