@@ -3,29 +3,53 @@
  * ePoint.az ↔ Tilda integration (two-stage checkout)
  * Hosting: served from your Vercel deployment as /tilda-epoint.js
  * Inject on the Tilda page via T123 (HTML block):
- *   <script>window.EPOINT_API_BASE = 'https://your-project.vercel.app';</script>
- *   <script src="https://your-project.vercel.app/tilda-epoint.js" defer></script>
+ *   <script src="https://epoint-tilda.vercel.app/tilda-epoint.js" defer></script>
+ * The API base is auto-detected from this script's own src — no need to set
+ * window.EPOINT_API_BASE (but you still can, to override).
  *
  * Flow:
- *   1. User fills the cart form and clicks the standard Tilda button ("Далее").
- *      We DO NOT block this click — Tilda validates the form and sends the order
- *      to its own data receiver (CRM / email / Sheets) as usual.
+ *   1. User fills the cart form and clicks the standard Tilda checkout button
+ *      (.t706__cartwin .t-submit). We DO NOT block this click — Tilda validates
+ *      the form and sends the order to its own data receiver (CRM / email /
+ *      Sheets) as usual.
  *   2. We snapshot the cart (amount + items) BEFORE Tilda clears it.
  *   3. Once the order is detected as submitted (cart emptied / success box),
- *      the order button turns into "Перейти к оплате" (and we also inject a
- *      fallback checkout button into the cart window).
+ *      we inject a "Перейти к оплате" button into the cart window.
  *   4. The second click goes to /api/create-payment and redirects to ePoint.
  */
 
 (function () {
   'use strict';
 
-  var DEFAULT_BASE = 'https://your-project.vercel.app';
-  var API_BASE = (window.EPOINT_API_BASE || DEFAULT_BASE).replace(/\/+$/, '');
+  var DEFAULT_BASE = 'https://epoint-tilda.vercel.app';
+
+  // Resolve the API base. Priority:
+  //   1. explicit window.EPOINT_API_BASE
+  //   2. the origin this very script was loaded from (most reliable)
+  //   3. DEFAULT_BASE fallback
+  function resolveApiBase() {
+    if (window.EPOINT_API_BASE) return String(window.EPOINT_API_BASE);
+    try {
+      var self =
+        document.currentScript ||
+        (function () {
+          var s = document.querySelectorAll('script[src*="tilda-epoint.js"]');
+          return s.length ? s[s.length - 1] : null;
+        })();
+      if (self && self.src) return new URL(self.src).origin;
+    } catch (_) {}
+    return DEFAULT_BASE;
+  }
+
+  var API_BASE = resolveApiBase().replace(/\/+$/, '');
   var CREATE_PAYMENT_URL = API_BASE + '/api/create-payment';
 
   var CHECKOUT_LABEL = 'Перейти к оплате';
-  var BTN_SELECTOR = '.t706__order-button, [data-epoint-pay]';
+  // The Tilda cart checkout button is the form submit inside .t706__cartwin
+  // (class .t-submit). Older themes use .t706__order-button. [data-epoint-pay]
+  // is our own injected button.
+  var BTN_SELECTOR =
+    '.t706__cartwin .t-submit, .t706__order-button, [data-epoint-pay]';
   var WATCH_TIMEOUT_MS = 20000;
   var WATCH_INTERVAL_MS = 400;
 
@@ -161,37 +185,29 @@
   /* ---- turn the UI into a "pay now" state ---- */
 
   function transformCheckoutButtons() {
-    // 1. Repurpose the standard Tilda order button if it is still around.
-    var orderBtn = document.querySelector('.t706__order-button');
-    if (orderBtn) {
-      if (orderBtn.getAttribute('data-epoint-stage') !== 'checkout') {
-        orderBtn.setAttribute('data-epoint-stage', 'checkout');
-        orderBtn.textContent = CHECKOUT_LABEL;
-        orderBtn.removeAttribute('disabled');
-      }
-    }
+    // Tilda hides its own submit button and shows a green success box on a
+    // successful order. We inject our own "pay now" button into the cart
+    // window. Tilda's native submit button is intentionally left untouched
+    // (its label markup contains nested <style>, unsafe to rewrite).
+    if (document.querySelector('[data-epoint-pay]')) return;
 
-    // 2. Inject a fallback checkout button into the cart window,
-    //    in case Tilda hid the original button on success.
-    if (!document.querySelector('[data-epoint-pay]')) {
-      var container =
-        document.querySelector('.t706__cartwin-content') ||
-        document.querySelector('.t706__cartwin') ||
-        document.body;
-      if (container) {
-        var btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 't-btn epoint-checkout-btn';
-        btn.setAttribute('data-epoint-pay', '1');
-        btn.textContent = CHECKOUT_LABEL;
-        btn.style.cssText =
-          'display:block;width:100%;margin:16px 0 0;padding:14px 20px;' +
-          'font-size:16px;cursor:pointer;border:none;border-radius:6px;' +
-          'background:#000;color:#fff;';
-        container.appendChild(btn);
-        log('fallback checkout button injected');
-      }
-    }
+    var container =
+      document.querySelector('.t706__cartwin-content') ||
+      document.querySelector('.t706__cartwin') ||
+      document.body;
+    if (!container) return;
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'epoint-checkout-btn';
+    btn.setAttribute('data-epoint-pay', '1');
+    btn.textContent = CHECKOUT_LABEL;
+    btn.style.cssText =
+      'display:block;width:100%;margin:16px 0 0;padding:16px 20px;' +
+      'font-size:16px;line-height:1.2;cursor:pointer;border:none;' +
+      'border-radius:6px;background:#000;color:#fff;font-family:inherit;';
+    container.appendChild(btn);
+    log('checkout button injected');
   }
 
   /* ---- payment ---- */
