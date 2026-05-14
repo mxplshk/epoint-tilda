@@ -191,22 +191,39 @@
     // (its label markup contains nested <style>, unsafe to rewrite).
     if (document.querySelector('[data-epoint-pay]')) return;
 
-    var container =
-      document.querySelector('.t706__cartwin-content') ||
-      document.querySelector('.t706__cartwin') ||
-      document.body;
-    if (!container) return;
-
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'epoint-checkout-btn';
     btn.setAttribute('data-epoint-pay', '1');
     btn.textContent = CHECKOUT_LABEL;
-    btn.style.cssText =
-      'display:block;width:100%;margin:16px 0 0;padding:16px 20px;' +
-      'font-size:16px;line-height:1.2;cursor:pointer;border:none;' +
+
+    var base =
+      'box-sizing:border-box;display:block;padding:14px 20px;' +
+      'font-size:15px;line-height:1.2;cursor:pointer;border:none;' +
       'border-radius:6px;background:#000;color:#fff;font-family:inherit;';
-    container.appendChild(btn);
+
+    var successBox = document.querySelector(
+      '.t-form__successbox, .t706__success, .js-successbox'
+    );
+
+    if (successBox && successBox.parentNode) {
+      // Place the button right under the green success box and mirror its
+      // horizontal margins so it stays inside the popup padding.
+      var cs = window.getComputedStyle(successBox);
+      btn.style.cssText =
+        base +
+        'width:100%;margin-top:14px;margin-bottom:20px;' +
+        'margin-left:' + cs.marginLeft + ';margin-right:' + cs.marginRight + ';';
+      successBox.parentNode.insertBefore(btn, successBox.nextSibling);
+    } else {
+      var container =
+        document.querySelector('.t706__cartwin-content') ||
+        document.querySelector('.t706__cartwin') ||
+        document.body;
+      if (!container) return;
+      btn.style.cssText = base + 'width:auto;margin:14px 40px 20px;';
+      container.appendChild(btn);
+    }
     log('checkout button injected');
   }
 
